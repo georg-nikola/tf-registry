@@ -1,6 +1,6 @@
 /* Terraform Module Registry - Frontend Application */
 
-const API_BASE = "/api";
+const API_BASE = "";
 
 // ---------------------------------------------------------------------------
 // Utility helpers
