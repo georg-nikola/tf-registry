@@ -4,17 +4,19 @@ Implements the Terraform Registry Protocol for modules plus an authenticated
 upload/delete API.
 """
 
+import hashlib
 import os
 import re
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, UploadFile
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session, engine, get_db
-from models import Base, Module
+from models import ApiKey, Base, Module
 from storage import (
     archive_path,
     delete_archive,
@@ -29,15 +31,29 @@ BASE_URL = os.getenv("BASE_URL", "")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$")
 
 
-def _require_api_key(authorization: str = Header(default="")) -> None:
-    """Validate the Bearer token matches our configured API key."""
-    if not API_KEY:
-        raise HTTPException(status_code=500, detail="API_KEY not configured on server")
+async def _require_api_key(
+    authorization: str = Header(default=""),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Validate the Bearer token against the static bootstrap key or a DB-stored key."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Bearer token")
     token = authorization[7:]
-    if token != API_KEY:
+
+    # Check static bootstrap key first (backwards compat / initial setup)
+    if API_KEY and token == API_KEY:
+        return
+
+    # Check DB keys by sha256 hash
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    result = await db.execute(select(ApiKey).where(ApiKey.key_hash == token_hash))
+    key_row = result.scalar_one_or_none()
+    if not key_row:
         raise HTTPException(status_code=403, detail="Invalid API key")
+
+    # Update last_used_at
+    key_row.last_used_at = func.now()
+    await db.commit()
 
 
 def _validate_semver(version: str) -> None:
@@ -68,6 +84,68 @@ app = FastAPI(
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# API key management
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/keys")
+async def list_keys(
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_api_key),
+):
+    """List all API keys (never returns the full key or hash)."""
+    result = await db.execute(select(ApiKey).order_by(ApiKey.created_at))
+    keys = result.scalars().all()
+    return {"keys": [k.to_dict() for k in keys]}
+
+
+@app.post("/api/keys")
+async def create_key(
+    body: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_api_key),
+):
+    """Create a new API key. Returns the full key once — it cannot be retrieved again."""
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Key name is required")
+
+    full_key = secrets.token_hex(32)
+    key_hash = hashlib.sha256(full_key.encode()).hexdigest()
+    key_prefix = full_key[:8]
+
+    api_key = ApiKey(name=name, key_prefix=key_prefix, key_hash=key_hash)
+    db.add(api_key)
+    await db.commit()
+    await db.refresh(api_key)
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            **api_key.to_dict(),
+            "key": full_key,
+        },
+    )
+
+
+@app.delete("/api/keys/{key_id}")
+async def delete_key(
+    key_id: int,
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_api_key),
+):
+    """Revoke an API key by ID."""
+    result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    key_row = result.scalar_one_or_none()
+    if not key_row:
+        raise HTTPException(status_code=404, detail="API key not found")
+
+    await db.delete(key_row)
+    await db.commit()
+    return {"detail": f"API key {key_id} revoked"}
 
 
 # ---------------------------------------------------------------------------

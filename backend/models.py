@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.sql import func
 
 
 class Base(DeclarativeBase):
@@ -49,4 +50,24 @@ class Module(Base):
             "version": self.version,
             "published_at": self.published_at.isoformat() if self.published_at else None,
             "downloads": self.downloads,
+        }
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)          # human label e.g. "CI deploy"
+    key_prefix = Column(String(8), nullable=False)      # first 8 chars, shown in list
+    key_hash = Column(String(64), nullable=False, unique=True)  # sha256 of the full key
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "key_prefix": self.key_prefix,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
         }

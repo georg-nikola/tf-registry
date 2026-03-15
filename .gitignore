@@ -18,3 +18,4 @@ __pycache__/
 
 # Node (if any tooling is added later)
 node_modules/
+.api_key

@@ -179,6 +179,127 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
         record("Delete with wrong API key → 403", False, str(exc)[:80])
 
     # -----------------------------------------------------------------------
+    # [API: Key Management]
+    # -----------------------------------------------------------------------
+    print("\n[API: Key Management]")
+
+    created_key_id = None
+    created_key_token = None
+
+    # Create a new key
+    try:
+        r = authed.post(
+            f"{base_url}/api/keys",
+            json={"name": "smoke-test-key"},
+            timeout=15,
+        )
+        ok = r.status_code == 201
+        record("POST /api/keys with valid auth + name → 201", ok, f"got {r.status_code}")
+    except Exception as exc:
+        record("POST /api/keys with valid auth + name → 201", False, str(exc)[:80])
+        r = None
+        ok = False
+
+    # Verify response shape
+    if ok and r is not None:
+        try:
+            body = r.json()
+            has_fields = all(k in body for k in ("id", "name", "key_prefix", "key"))
+            correct_name = body.get("name") == "smoke-test-key"
+            no_hash = "key_hash" not in body
+            record(
+                "Response contains id, name, key_prefix, key (full) — no key_hash",
+                has_fields and correct_name and no_hash,
+                str({k: body.get(k) for k in ("id", "name", "key_prefix") if k in body}),
+            )
+            if has_fields:
+                created_key_id = body["id"]
+                created_key_token = body["key"]
+        except Exception as exc:
+            record("Response contains id, name, key_prefix, key (full) — no key_hash", False, str(exc)[:80])
+    else:
+        record("Response contains id, name, key_prefix, key (full) — no key_hash", False, "create failed")
+
+    # List keys — should include the new one
+    try:
+        r = authed.get(f"{base_url}/api/keys", timeout=15)
+        ok = r.status_code == 200
+        body = r.json() if ok else {}
+        found = created_key_id is not None and any(
+            k.get("id") == created_key_id for k in body.get("keys", [])
+        )
+        # Confirm full key is never in list response
+        full_key_absent = created_key_token is not None and all(
+            "key" not in k or k.get("key") is None for k in body.get("keys", [])
+        )
+        record(
+            "GET /api/keys → 200, list contains new key (without full key value)",
+            ok and found and full_key_absent,
+            f"status={r.status_code}, found={found}",
+        )
+    except Exception as exc:
+        record("GET /api/keys → 200, list contains new key (without full key value)", False, str(exc)[:80])
+
+    # Use the new key for an upload, then delete that upload
+    new_key_upload_ok = False
+    if created_key_token:
+        new_key_authed = requests.Session()
+        new_key_authed.headers["Authorization"] = f"Bearer {created_key_token}"
+        alt_version = "9.9.8"
+        alt_path = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, alt_version)}"
+        try:
+            r = new_key_authed.post(
+                alt_path,
+                files={"file": ("module.tar.gz", io.BytesIO(archive_bytes), "application/gzip")},
+                timeout=30,
+            )
+            new_key_upload_ok = r.status_code == 201
+            record(
+                "New DB key works for module upload → 201",
+                new_key_upload_ok,
+                f"got {r.status_code}",
+            )
+        except Exception as exc:
+            record("New DB key works for module upload → 201", False, str(exc)[:80])
+
+        # Clean up the test upload made with the new key
+        if new_key_upload_ok:
+            try:
+                authed.delete(alt_path, timeout=15)
+            except Exception:
+                pass
+
+    # Delete the key
+    try:
+        r = authed.delete(f"{base_url}/api/keys/{created_key_id}", timeout=15)
+        ok = r.status_code == 200
+        record("DELETE /api/keys/{id} with valid auth → 200", ok, f"got {r.status_code}")
+    except Exception as exc:
+        record("DELETE /api/keys/{id} with valid auth → 200", False, str(exc)[:80])
+
+    # Revoked key should no longer work
+    if created_key_token:
+        revoked_session = requests.Session()
+        revoked_session.headers["Authorization"] = f"Bearer {created_key_token}"
+        alt_version2 = "9.9.7"
+        alt_path2 = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, alt_version2)}"
+        try:
+            r = revoked_session.post(
+                alt_path2,
+                files={"file": ("module.tar.gz", io.BytesIO(archive_bytes), "application/gzip")},
+                timeout=15,
+            )
+            record(
+                "Revoked key no longer works for upload → 403",
+                r.status_code == 403,
+                f"got {r.status_code}",
+            )
+        except Exception as exc:
+            record("Revoked key no longer works for upload → 403", False, str(exc)[:80])
+    else:
+        record("Revoked key no longer works for upload → 403", False, "key not created")
+
+    # -----------------------------------------------------------------------
     # [API: Module Lifecycle]
     # -----------------------------------------------------------------------
     print("\n[API: Module Lifecycle]")

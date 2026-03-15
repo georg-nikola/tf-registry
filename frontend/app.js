@@ -50,6 +50,18 @@ function showAlert(container, message, type = "error") {
 }
 
 // ---------------------------------------------------------------------------
+// API key localStorage persistence
+// ---------------------------------------------------------------------------
+
+function getStoredApiKey() {
+  return localStorage.getItem("tf_api_key") || "";
+}
+
+function setStoredApiKey(key) {
+  localStorage.setItem("tf_api_key", key);
+}
+
+// ---------------------------------------------------------------------------
 // Browse page (index.html)
 // ---------------------------------------------------------------------------
 
@@ -316,10 +328,20 @@ function initUploadPage() {
   const form = qs("#upload-form");
   if (!form) return;
 
+  // Pre-fill API key from localStorage
+  const apiKeyInput = qs("#api-key", form);
+  if (apiKeyInput) {
+    apiKeyInput.value = getStoredApiKey();
+    apiKeyInput.addEventListener("input", () => {
+      setStoredApiKey(apiKeyInput.value);
+    });
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
     const apiKey = qs("#api-key", form).value.trim();
+    setStoredApiKey(apiKey);
     const namespace = qs("#namespace", form).value.trim();
     const moduleName = qs("#module-name", form).value.trim();
     const provider = qs("#provider", form).value.trim();
@@ -386,6 +408,171 @@ function initUploadPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Keys page (keys.html)
+// ---------------------------------------------------------------------------
+
+function initKeysPage() {
+  const keysSection = qs("#keys-section");
+  if (!keysSection) return;
+
+  const apiKeyInput = qs("#api-key-input");
+  const keysList = qs("#keys-list");
+  const keysTableBody = qs("#keys-table-body");
+  const noKeysMsg = qs("#no-keys-msg");
+  const authPrompt = qs("#auth-prompt");
+  const generateForm = qs("#generate-form");
+  const keyNameInput = qs("#key-name");
+  const newKeyBox = qs("#new-key-box");
+  const newKeyValue = qs("#new-key-value");
+  const copyNewKeyBtn = qs("#copy-new-key");
+
+  // Pre-fill API key from localStorage
+  if (apiKeyInput) {
+    apiKeyInput.value = getStoredApiKey();
+    apiKeyInput.addEventListener("input", () => {
+      setStoredApiKey(apiKeyInput.value);
+    });
+  }
+
+  async function fetchKeys() {
+    const key = apiKeyInput ? apiKeyInput.value.trim() : "";
+    if (!key) {
+      if (authPrompt) authPrompt.style.display = "";
+      if (keysList) keysList.style.display = "none";
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/keys", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        if (authPrompt) authPrompt.style.display = "";
+        if (keysList) keysList.style.display = "none";
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (authPrompt) authPrompt.style.display = "none";
+      if (keysList) keysList.style.display = "";
+      renderKeyRows(data.keys || []);
+    } catch (err) {
+      showAlert(keysSection, err.message);
+    }
+  }
+
+  function renderKeyRows(keys) {
+    if (!keysTableBody) return;
+    if (keys.length === 0) {
+      keysTableBody.innerHTML = "";
+      if (noKeysMsg) noKeysMsg.style.display = "";
+      return;
+    }
+    if (noKeysMsg) noKeysMsg.style.display = "none";
+    keysTableBody.innerHTML = keys
+      .map(
+        (k) => `
+      <tr>
+        <td>${escapeHtml(k.name)}</td>
+        <td><code>${escapeHtml(k.key_prefix)}...</code></td>
+        <td>${k.created_at ? relativeTime(k.created_at) : "—"}</td>
+        <td>${k.last_used_at ? relativeTime(k.last_used_at) : "never"}</td>
+        <td><button class="btn btn-danger btn-sm revoke-btn" data-id="${k.id}" data-name="${escapeHtml(k.name)}">Revoke</button></td>
+      </tr>`
+      )
+      .join("");
+
+    keysTableBody.querySelectorAll(".revoke-btn").forEach((btn) => {
+      btn.addEventListener("click", () => revokeKey(Number(btn.dataset.id), btn.dataset.name));
+    });
+  }
+
+  async function revokeKey(id, name) {
+    if (!confirm(`Revoke key "${name}"? This cannot be undone.`)) return;
+    const key = apiKeyInput ? apiKeyInput.value.trim() : "";
+    try {
+      const res = await fetch(`/api/keys/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+      await fetchKeys();
+    } catch (err) {
+      showAlert(keysSection, err.message);
+    }
+  }
+
+  if (generateForm) {
+    generateForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = keyNameInput ? keyNameInput.value.trim() : "";
+      if (!name) {
+        showAlert(keysSection, "Please enter a name for the key.");
+        return;
+      }
+      const key = apiKeyInput ? apiKeyInput.value.trim() : "";
+      const submitBtn = qs('button[type="submit"]', generateForm);
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Generating...";
+      }
+      try {
+        const res = await fetch("/api/keys", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (newKeyValue) newKeyValue.textContent = data.key;
+        if (newKeyBox) newKeyBox.style.display = "";
+        if (keyNameInput) keyNameInput.value = "";
+        await fetchKeys();
+      } catch (err) {
+        showAlert(keysSection, err.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Generate Key";
+        }
+      }
+    });
+  }
+
+  if (copyNewKeyBtn && newKeyValue) {
+    copyNewKeyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(newKeyValue.textContent).then(() => {
+        copyNewKeyBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyNewKeyBtn.textContent = "Copy";
+        }, 2000);
+      });
+    });
+  }
+
+  // Load on page open; also reload when the API key input changes
+  fetchKeys();
+  if (apiKeyInput) {
+    apiKeyInput.addEventListener("change", fetchKeys);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Router — run the right init for each page
 // ---------------------------------------------------------------------------
 
@@ -393,4 +580,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initBrowsePage();
   initModulePage();
   initUploadPage();
+  initKeysPage();
 });
