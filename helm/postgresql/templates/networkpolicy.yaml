@@ -3,11 +3,11 @@ kind: NetworkPolicy
 metadata:
   name: {{ include "postgresql.fullname" . }}
   labels:
-    app: postgresql
+    app: {{ include "postgresql.fullname" . }}
 spec:
   podSelector:
     matchLabels:
-      app: postgresql
+      app: {{ include "postgresql.fullname" . }}
   policyTypes:
     - Ingress
   ingress:

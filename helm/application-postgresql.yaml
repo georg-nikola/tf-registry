@@ -20,7 +20,7 @@ spec:
           tag: "16.13-alpine3.23"
           pullPolicy: IfNotPresent
 
-        fullnameOverride: "postgresql"
+        fullnameOverride: "tf-registry-postgresql"
 
         auth:
           database: tfregistry

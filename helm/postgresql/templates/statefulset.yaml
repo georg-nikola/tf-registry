@@ -3,17 +3,17 @@ kind: StatefulSet
 metadata:
   name: {{ include "postgresql.fullname" . }}
   labels:
-    app: postgresql
+    app: {{ include "postgresql.fullname" . }}
 spec:
   serviceName: {{ include "postgresql.fullname" . }}
   replicas: 1
   selector:
     matchLabels:
-      app: postgresql
+      app: {{ include "postgresql.fullname" . }}
   template:
     metadata:
       labels:
-        app: postgresql
+        app: {{ include "postgresql.fullname" . }}
     spec:
       # NOTE: The official postgres image starts as root and uses gosu/su-exec to
       # drop to the postgres user internally. Full non-root enforcement requires
