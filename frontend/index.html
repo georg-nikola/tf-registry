@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terraform Module Registry</title>
+  <link rel="stylesheet" href="style.css?v=1.0.0">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <a href="/" class="logo">TF Registry</a>
+      <nav>
+        <a href="/">Browse</a>
+        <a href="upload.html">Upload</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="Search modules..." autocomplete="off">
+      <select id="namespace-filter">
+        <option value="">All namespaces</option>
+      </select>
+    </div>
+
+    <div id="module-list" class="module-list">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+
+    <div class="pagination">
+      <button id="prev-btn" disabled>Previous</button>
+      <span id="page-info" class="page-info"></span>
+      <button id="next-btn" disabled>Next</button>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      Terraform Module Registry v1.0.0
+    </div>
+  </footer>
+
+  <script src="app.js?v=1.0.0"></script>
+</body>
+</html>

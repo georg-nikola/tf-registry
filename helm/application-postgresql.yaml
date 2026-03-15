@@ -1,0 +1,76 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tf-registry-postgresql
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/georg-nikola/tf-registry
+    targetRevision: main
+    path: helm/postgresql
+    helm:
+      releaseName: tf-registry-postgresql
+      valueFiles:
+        - values.yaml
+      values: |
+        image:
+          repository: postgres
+          tag: "16.13-alpine3.23"
+          pullPolicy: IfNotPresent
+
+        fullnameOverride: "postgresql"
+
+        auth:
+          database: tfregistry
+          username: tfregistry
+          existingSecret: postgresql-credentials
+          secretKeys:
+            userPasswordKey: password
+            adminPasswordKey: postgres-password
+
+        storage:
+          size: 5Gi
+          storageClassName: ""
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jsonPointers:
+        - /spec/replicas
+
+  info:
+    - name: Repository
+      value: https://github.com/georg-nikola/tf-registry

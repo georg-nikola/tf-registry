@@ -1,0 +1,42 @@
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: georg-nikola/tf-registry-api
+  pullPolicy: Always
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "tf-registry-api"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  host: tf-registry.example.com
+
+env: {}
+
+existingSecret: ""
+
+storage:
+  size: 10Gi
+  storageClassName: ""
+  mountPath: /data
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule

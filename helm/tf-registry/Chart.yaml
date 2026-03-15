@@ -1,0 +1,17 @@
+apiVersion: v2
+name: tf-registry
+description: A Helm chart for deploying the Terraform Module Registry static frontend
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - tf-registry
+  - terraform
+  - static-site
+  - nginx
+home: https://github.com/georg-nikola/tf-registry
+sources:
+  - https://github.com/georg-nikola/tf-registry
+maintainers:
+  - name: Georg Nikola
+    email: dev@georg-nikola.com

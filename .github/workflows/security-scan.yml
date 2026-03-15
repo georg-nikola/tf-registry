@@ -1,0 +1,134 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── Secret scanning ───────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Python SAST + dependency CVEs ─────────────────────────────────────────
+  python-scan:
+    name: Python SAST + CVE scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install scanners
+        run: pip install bandit pip-audit
+
+      - name: Bandit — Python SAST
+        run: bandit -r backend/ -ll -ii --exclude backend/tests -f json -o bandit-report.json || true
+
+      - name: Bandit — print results
+        run: |
+          python -c "
+          import json, sys
+          r = json.load(open('bandit-report.json'))
+          issues = r.get('results', [])
+          high = [i for i in issues if i['issue_severity'] == 'HIGH']
+          med  = [i for i in issues if i['issue_severity'] == 'MEDIUM']
+          print(f'Bandit: {len(issues)} issues ({len(high)} HIGH, {len(med)} MEDIUM)')
+          for i in high + med:
+              print(f\"  [{i['issue_severity']}] {i['issue_text']} — {i['filename']}:{i['line_number']}\")
+          sys.exit(1 if high else 0)
+          "
+
+      - name: pip-audit — dependency CVEs
+        run: pip-audit -r backend/requirements.txt -f json -o pip-audit-report.json || true
+
+      - name: pip-audit — print results
+        run: |
+          python -c "
+          import json, sys
+          r = json.load(open('pip-audit-report.json'))
+          vulns = [dep for dep in r.get('dependencies', []) if dep.get('vulns')]
+          if vulns:
+              print(f'pip-audit: {len(vulns)} vulnerable package(s)')
+              for dep in vulns:
+                  for v in dep['vulns']:
+                      print(f\"  {dep['name']}=={dep['version']}: {v['id']} — {v['description'][:100]}\")
+              sys.exit(1)
+          else:
+              print('pip-audit: no vulnerabilities found')
+          "
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-scan-reports
+          path: |
+            bandit-report.json
+            pip-audit-report.json
+
+  # ── IaC + filesystem scan (Trivy) ─────────────────────────────────────────
+  trivy-iac:
+    name: Trivy IaC scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy — Dockerfiles + Helm charts + IaC
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: CRITICAL,HIGH,MEDIUM
+          format: table
+          exit-code: "0"
+
+      - name: Trivy — SARIF for GitHub Security tab
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          format: sarif
+          output: trivy-iac.sarif
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-iac.sarif
+          category: trivy-iac
+
+  # ── Kubernetes posture (Kubescape) ─────────────────────────────────────────
+  kubescape:
+    name: Kubescape K8s posture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kubescape — NSA + MITRE frameworks
+        uses: kubescape/github-action@main
+        continue-on-error: true
+        with:
+          frameworks: NSA,MITRE
+          files: helm/
+          format: pretty-printer
+          severityThreshold: high

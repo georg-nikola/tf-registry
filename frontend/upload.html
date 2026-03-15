@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload Module - Terraform Module Registry</title>
+  <link rel="stylesheet" href="style.css?v=1.0.0">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <a href="/" class="logo">TF Registry</a>
+      <nav>
+        <a href="/">Browse</a>
+        <a href="upload.html">Upload</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="upload-section">
+      <h1>Upload Module</h1>
+
+      <form id="upload-form">
+        <div class="form-group">
+          <label for="api-key">API Key *</label>
+          <input type="password" id="api-key" required placeholder="Your API key">
+        </div>
+
+        <div class="form-group">
+          <label for="namespace">Namespace *</label>
+          <input type="text" id="namespace" required placeholder="e.g. myorg" pattern="[a-zA-Z0-9_-]+">
+        </div>
+
+        <div class="form-group">
+          <label for="module-name">Module Name *</label>
+          <input type="text" id="module-name" required placeholder="e.g. vpc" pattern="[a-zA-Z0-9_-]+">
+        </div>
+
+        <div class="form-group">
+          <label for="provider">Provider *</label>
+          <input type="text" id="provider" required placeholder="e.g. aws" pattern="[a-zA-Z0-9_-]+">
+        </div>
+
+        <div class="form-group">
+          <label for="version">Version *</label>
+          <input type="text" id="version" required placeholder="e.g. 1.0.0" pattern="\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?">
+        </div>
+
+        <div class="form-group">
+          <label for="description">Description</label>
+          <textarea id="description" placeholder="Short description of the module"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="source-url">Source URL</label>
+          <input type="url" id="source-url" placeholder="https://github.com/org/repo">
+        </div>
+
+        <div class="form-group">
+          <label for="archive-file">Module Archive (.tar.gz) *</label>
+          <input type="file" id="archive-file" required accept=".tar.gz,.tgz,application/gzip">
+        </div>
+
+        <button type="submit" class="btn btn-primary">Upload Module</button>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      Terraform Module Registry v1.0.0
+    </div>
+  </footer>
+
+  <script src="app.js?v=1.0.0"></script>
+</body>
+</html>

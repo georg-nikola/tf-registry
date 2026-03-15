@@ -1,0 +1,32 @@
+image:
+  repository: postgres
+  tag: "16.13-alpine3.23"
+  pullPolicy: IfNotPresent
+
+fullnameOverride: "postgresql"
+
+auth:
+  database: tfregistry
+  username: tfregistry
+  # password and postgresPassword come from the secret
+  existingSecret: postgresql-credentials
+  secretKeys:
+    userPasswordKey: password
+    adminPasswordKey: postgres-password
+
+storage:
+  size: 5Gi
+  storageClassName: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule

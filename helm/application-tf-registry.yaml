@@ -1,0 +1,130 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tf-registry
+  namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: frontend=ghcr.io/georg-nikola/tf-registry
+    argocd-image-updater.argoproj.io/frontend.update-strategy: semver
+    argocd-image-updater.argoproj.io/frontend.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/frontend.helm.image-tag: image.tag
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/georg-nikola/tf-registry
+    targetRevision: main
+    path: helm/tf-registry
+    helm:
+      releaseName: tf-registry
+      valueFiles:
+        - values.yaml
+      values: |
+        replicaCount: 2
+
+        image:
+          registry: ghcr.io
+          repository: georg-nikola/tf-registry
+          pullPolicy: Always
+          tag: "1.0.0"
+
+        imagePullSecrets: []
+
+        podSecurityContext:
+          fsGroup: 101
+          seccompProfile:
+            type: RuntimeDefault
+
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 101
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+
+        service:
+          type: ClusterIP
+          port: 80
+          targetPort: 8080
+
+        ingress:
+          enabled: true
+          hosts:
+            - host: tf-registry.georg-nikola.com
+              paths:
+                - path: /
+                  pathType: Prefix
+
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+
+        podAnnotations:
+          prometheus.io/scrape: "false"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Service
+      jsonPointers:
+        - /spec/clusterIP
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+
+  info:
+    - name: Repository
+      value: https://github.com/georg-nikola/tf-registry
+    - name: URL
+      value: https://tf-registry.georg-nikola.com
