@@ -120,8 +120,7 @@ jobs:
           push: true
           tags: ${{ steps.meta-api.outputs.tags }}
           labels: ${{ steps.meta-api.outputs.labels }}
-          cache-from: type=gha,scope=api
-          cache-to: type=gha,mode=max,scope=api
+          no-cache: true
           platforms: linux/amd64,linux/arm64
 
       - name: Generate API artifact attestation
