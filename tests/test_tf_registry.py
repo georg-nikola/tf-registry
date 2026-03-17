@@ -34,8 +34,6 @@ import requests
 PROD_URL = "https://tf-registry.georg-nikola.com"
 PROD_IP = "104.21.12.221"
 
-# Fixed identifiers for the smoke-test module — chosen to avoid collision with
-# real data while being obviously synthetic.
 TEST_NS = "smoke-test"
 TEST_NAME = "test-vpc"
 TEST_PROVIDER = "aws"
@@ -50,15 +48,26 @@ FAIL = "\033[91m\u2717\033[0m"
 # ---------------------------------------------------------------------------
 
 
-def _load_api_key() -> str:
-    """Return API key from file or environment variable."""
-    key_file = os.path.expanduser("~/repos/tf-registry/.api_key")
+def _get_credentials() -> tuple[str, str]:
+    """Return (username, password) from environment variables."""
+    username = os.getenv("TF_REGISTRY_USERNAME", "admin")
+    password = os.getenv("TF_REGISTRY_PASSWORD", "admin")
+    return username, password
+
+
+def _login(base_url: str, username: str, password: str) -> str:
+    """POST /api/auth/login, return JWT access_token on success or empty string."""
     try:
-        with open(key_file) as fh:
-            return fh.read().strip()
-    except OSError:
+        r = requests.post(
+            f"{base_url}/api/auth/login",
+            json={"username": username, "password": password},
+            timeout=15,
+        )
+        if r.status_code == 200:
+            return r.json().get("access_token", "")
+    except Exception:
         pass
-    return os.getenv("TF_REGISTRY_API_KEY", "")
+    return ""
 
 
 def _make_archive() -> bytes:
@@ -84,7 +93,7 @@ def _module_path(*parts: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool) -> list[tuple[str, bool]]:
+def run_tests(base_url: str, username: str, password: str, skip_frontend: bool, no_cleanup: bool) -> list[tuple[str, bool]]:
     results: list[tuple[str, bool]] = []
     base_url = base_url.rstrip("/")
 
@@ -94,14 +103,8 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
         print(f"  {icon} {name}{suffix}")
         results.append((name, passed))
 
-    # Shared sessions
     anon = requests.Session()
-    authed = requests.Session()
-    authed.headers["Authorization"] = f"Bearer {api_key}"
-
-    # Track whether we actually uploaded the test module so cleanup knows what to do.
     uploaded = False
-    # Track whether we need a fresh upload for frontend tests.
     needs_frontend_module = False
 
     # -----------------------------------------------------------------------
@@ -132,10 +135,60 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     # -----------------------------------------------------------------------
     print("\n[API: Authentication]")
 
+    # Login with correct credentials
+    jwt_token = ""
+    try:
+        r = requests.post(
+            f"{base_url}/api/auth/login",
+            json={"username": username, "password": password},
+            timeout=15,
+        )
+        ok = r.status_code == 200
+        token = r.json().get("access_token", "") if ok else ""
+        has_token = bool(token)
+        record("POST /api/auth/login with correct credentials → 200 + access_token",
+               ok and has_token,
+               f"status={r.status_code}")
+        if has_token:
+            jwt_token = token
+    except Exception as exc:
+        record("POST /api/auth/login with correct credentials → 200 + access_token",
+               False, str(exc)[:80])
+
+    # Login with wrong password
+    try:
+        r = requests.post(
+            f"{base_url}/api/auth/login",
+            json={"username": username, "password": "definitely-wrong-password"},
+            timeout=15,
+        )
+        record("POST /api/auth/login with wrong password → 401",
+               r.status_code == 401,
+               f"got {r.status_code}")
+    except Exception as exc:
+        record("POST /api/auth/login with wrong password → 401", False, str(exc)[:80])
+
+    # Login with wrong username
+    try:
+        r = requests.post(
+            f"{base_url}/api/auth/login",
+            json={"username": "nobody", "password": password},
+            timeout=15,
+        )
+        record("POST /api/auth/login with wrong username → 401",
+               r.status_code == 401,
+               f"got {r.status_code}")
+    except Exception as exc:
+        record("POST /api/auth/login with wrong username → 401", False, str(exc)[:80])
+
+    authed = requests.Session()
+    if jwt_token:
+        authed.headers["Authorization"] = f"Bearer {jwt_token}"
+
     upload_path = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, TEST_VERSION)}"
     archive_bytes = _make_archive()
 
-    # Upload without any Authorization header
+    # Upload without Authorization header
     try:
         r = anon.post(
             upload_path,
@@ -147,164 +200,24 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record("Upload without Authorization header → 422 or 401", False, str(exc)[:80])
 
-    # Upload with wrong key
+    # Upload with invalid JWT
     try:
         r = requests.post(
             upload_path,
             files={"file": ("module.tar.gz", io.BytesIO(archive_bytes), "application/gzip")},
-            headers={"Authorization": "Bearer this-is-definitely-wrong"},
+            headers={"Authorization": "Bearer this-is-not-a-valid-jwt"},
             timeout=15,
         )
-        record("Upload with wrong API key → 403", r.status_code == 403, f"got {r.status_code}")
+        record("Upload with invalid JWT → 401",
+               r.status_code == 401, f"got {r.status_code}")
     except Exception as exc:
-        record("Upload with wrong API key → 403", False, str(exc)[:80])
-
-    # Delete without Authorization header
-    try:
-        r = anon.delete(upload_path, timeout=15)
-        record("Delete without Authorization header → 422 or 401",
-               r.status_code in (401, 422), f"got {r.status_code}")
-    except Exception as exc:
-        record("Delete without Authorization header → 422 or 401", False, str(exc)[:80])
-
-    # Delete with wrong key
-    try:
-        r = requests.delete(
-            upload_path,
-            headers={"Authorization": "Bearer this-is-definitely-wrong"},
-            timeout=15,
-        )
-        record("Delete with wrong API key → 403", r.status_code == 403, f"got {r.status_code}")
-    except Exception as exc:
-        record("Delete with wrong API key → 403", False, str(exc)[:80])
-
-    # -----------------------------------------------------------------------
-    # [API: Key Management]
-    # -----------------------------------------------------------------------
-    print("\n[API: Key Management]")
-
-    created_key_id = None
-    created_key_token = None
-
-    # Create a new key
-    try:
-        r = authed.post(
-            f"{base_url}/api/keys",
-            json={"name": "smoke-test-key"},
-            timeout=15,
-        )
-        ok = r.status_code == 201
-        record("POST /api/keys with valid auth + name → 201", ok, f"got {r.status_code}")
-    except Exception as exc:
-        record("POST /api/keys with valid auth + name → 201", False, str(exc)[:80])
-        r = None
-        ok = False
-
-    # Verify response shape
-    if ok and r is not None:
-        try:
-            body = r.json()
-            has_fields = all(k in body for k in ("id", "name", "key_prefix", "key"))
-            correct_name = body.get("name") == "smoke-test-key"
-            no_hash = "key_hash" not in body
-            record(
-                "Response contains id, name, key_prefix, key (full) — no key_hash",
-                has_fields and correct_name and no_hash,
-                str({k: body.get(k) for k in ("id", "name", "key_prefix") if k in body}),
-            )
-            if has_fields:
-                created_key_id = body["id"]
-                created_key_token = body["key"]
-        except Exception as exc:
-            record("Response contains id, name, key_prefix, key (full) — no key_hash", False, str(exc)[:80])
-    else:
-        record("Response contains id, name, key_prefix, key (full) — no key_hash", False, "create failed")
-
-    # List keys — should include the new one
-    try:
-        r = authed.get(f"{base_url}/api/keys", timeout=15)
-        ok = r.status_code == 200
-        body = r.json() if ok else {}
-        found = created_key_id is not None and any(
-            k.get("id") == created_key_id for k in body.get("keys", [])
-        )
-        # Confirm full key is never in list response
-        full_key_absent = created_key_token is not None and all(
-            "key" not in k or k.get("key") is None for k in body.get("keys", [])
-        )
-        record(
-            "GET /api/keys → 200, list contains new key (without full key value)",
-            ok and found and full_key_absent,
-            f"status={r.status_code}, found={found}",
-        )
-    except Exception as exc:
-        record("GET /api/keys → 200, list contains new key (without full key value)", False, str(exc)[:80])
-
-    # Use the new key for an upload, then delete that upload
-    new_key_upload_ok = False
-    if created_key_token:
-        new_key_authed = requests.Session()
-        new_key_authed.headers["Authorization"] = f"Bearer {created_key_token}"
-        alt_version = "9.9.8"
-        alt_path = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, alt_version)}"
-        try:
-            r = new_key_authed.post(
-                alt_path,
-                files={"file": ("module.tar.gz", io.BytesIO(archive_bytes), "application/gzip")},
-                timeout=30,
-            )
-            new_key_upload_ok = r.status_code == 201
-            record(
-                "New DB key works for module upload → 201",
-                new_key_upload_ok,
-                f"got {r.status_code}",
-            )
-        except Exception as exc:
-            record("New DB key works for module upload → 201", False, str(exc)[:80])
-
-        # Clean up the test upload made with the new key
-        if new_key_upload_ok:
-            try:
-                authed.delete(alt_path, timeout=15)
-            except Exception:
-                pass
-
-    # Delete the key
-    try:
-        r = authed.delete(f"{base_url}/api/keys/{created_key_id}", timeout=15)
-        ok = r.status_code == 200
-        record("DELETE /api/keys/{id} with valid auth → 200", ok, f"got {r.status_code}")
-    except Exception as exc:
-        record("DELETE /api/keys/{id} with valid auth → 200", False, str(exc)[:80])
-
-    # Revoked key should no longer work
-    if created_key_token:
-        revoked_session = requests.Session()
-        revoked_session.headers["Authorization"] = f"Bearer {created_key_token}"
-        alt_version2 = "9.9.7"
-        alt_path2 = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, alt_version2)}"
-        try:
-            r = revoked_session.post(
-                alt_path2,
-                files={"file": ("module.tar.gz", io.BytesIO(archive_bytes), "application/gzip")},
-                timeout=15,
-            )
-            record(
-                "Revoked key no longer works for upload → 403",
-                r.status_code == 403,
-                f"got {r.status_code}",
-            )
-        except Exception as exc:
-            record("Revoked key no longer works for upload → 403", False, str(exc)[:80])
-    else:
-        record("Revoked key no longer works for upload → 403", False, "key not created")
+        record("Upload with invalid JWT → 401", False, str(exc)[:80])
 
     # -----------------------------------------------------------------------
     # [API: Module Lifecycle]
     # -----------------------------------------------------------------------
     print("\n[API: Module Lifecycle]")
 
-    # Test 7 — upload
     try:
         r = authed.post(
             upload_path,
@@ -317,7 +230,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record("Upload test module returns 201", False, str(exc)[:80])
 
-    # Test 8 — verify upload response fields
     if uploaded:
         try:
             body = r.json()
@@ -337,7 +249,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     else:
         record("Upload response contains correct namespace/name/provider/version", False, "upload failed")
 
-    # Test 9 — duplicate returns 409
     try:
         r2 = authed.post(
             upload_path,
@@ -349,7 +260,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record("Uploading same version again returns 409", False, str(exc)[:80])
 
-    # Test 10 — versions list
     versions_url = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, 'versions')}"
     try:
         r = anon.get(versions_url, timeout=15)
@@ -367,7 +277,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record(f"GET /versions returns list including v{TEST_VERSION}", False, str(exc)[:80])
 
-    # Test 11 — latest version
     latest_url = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER)}"
     try:
         r = anon.get(latest_url, timeout=15)
@@ -381,7 +290,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record(f"GET latest returns v{TEST_VERSION}", False, str(exc)[:80])
 
-    # Test 12 — specific version
     specific_url = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, TEST_VERSION)}"
     try:
         r = anon.get(specific_url, timeout=15)
@@ -402,7 +310,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record(f"GET /{{version}} returns correct module info", False, str(exc)[:80])
 
-    # Test 13 — list includes our module
     try:
         r = anon.get(f"{base_url}/v1/modules", timeout=15)
         ok = r.status_code == 200
@@ -416,7 +323,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record("GET /v1/modules includes uploaded module", False, str(exc)[:80])
 
-    # Test 14 — search by name
     try:
         r = anon.get(f"{base_url}/v1/modules", params={"q": TEST_NAME}, timeout=15)
         ok = r.status_code == 200
@@ -430,7 +336,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record(f"GET /v1/modules?q={TEST_NAME} finds the module", False, str(exc)[:80])
 
-    # Test 15 — search by namespace
     try:
         r = anon.get(f"{base_url}/v1/modules", params={"namespace": TEST_NS}, timeout=15)
         ok = r.status_code == 200
@@ -444,7 +349,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     except Exception as exc:
         record(f"GET /v1/modules?namespace={TEST_NS} finds the module", False, str(exc)[:80])
 
-    # Test 16 — download endpoint (204 + X-Terraform-Get)
     download_url = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, TEST_VERSION, 'download')}"
     x_terraform_get = None
     try:
@@ -462,19 +366,11 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
         record("GET /download returns 204 with X-Terraform-Get pointing to /archive",
                False, str(exc)[:80])
 
-    # Test 17 — archive endpoint returns gzip bytes
     try:
-        # Build the archive URL from the X-Terraform-Get header when available,
-        # else construct it directly.
         if x_terraform_get:
-            if x_terraform_get.startswith("http"):
-                archive_fetch_url = x_terraform_get
-            else:
-                archive_fetch_url = base_url + x_terraform_get
+            archive_fetch_url = x_terraform_get if x_terraform_get.startswith("http") else base_url + x_terraform_get
         else:
-            archive_fetch_url = (
-                f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, TEST_VERSION, 'archive')}"
-            )
+            archive_fetch_url = f"{base_url}{_module_path(TEST_NS, TEST_NAME, TEST_PROVIDER, TEST_VERSION, 'archive')}"
         r = anon.get(archive_fetch_url, timeout=30)
         ok = r.status_code == 200
         is_gzip = ok and r.content[:2] == b"\x1f\x8b"
@@ -487,28 +383,24 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
         record("GET /archive returns gzip bytes (magic \\x1f\\x8b)", False, str(exc)[:80])
 
     # -----------------------------------------------------------------------
-    # [CLEANUP] — delete test module (unless --no-cleanup)
+    # [CLEANUP]
     # -----------------------------------------------------------------------
     print("\n[CLEANUP]")
     deleted = False
     if no_cleanup:
-        print(f"  -- skipped (--no-cleanup): test module {TEST_NS}/{TEST_NAME}/{TEST_PROVIDER} v{TEST_VERSION} left in place")
+        print(f"  -- skipped (--no-cleanup): test module left in place")
         needs_frontend_module = uploaded
     else:
         if uploaded:
-            # We will re-upload after cleanup for the frontend detail page test.
             needs_frontend_module = True
             try:
                 r = authed.delete(upload_path, timeout=15)
-
-                # Test 18 — delete returns 200
                 record("DELETE test module returns 200", r.status_code == 200,
                        f"got {r.status_code}")
                 deleted = r.status_code == 200
             except Exception as exc:
                 record("DELETE test module returns 200", False, str(exc)[:80])
 
-            # Test 19 — versions 404 after delete
             try:
                 r = anon.get(versions_url, timeout=15)
                 record("After delete, GET /versions returns 404",
@@ -516,7 +408,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
             except Exception as exc:
                 record("After delete, GET /versions returns 404", False, str(exc)[:80])
 
-            # Test 20 — specific version 404 after delete
             try:
                 r = anon.get(specific_url, timeout=15)
                 record("After delete, GET /{{version}} returns 404",
@@ -532,14 +423,12 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     print("\n[API: Edge Cases]")
 
     ghost_base = f"{base_url}/v1/modules/nonexistent/module/aws"
-
     edges: list[tuple[str, str]] = [
         ("GET /nonexistent/.../versions returns 404", f"{ghost_base}/versions"),
         ("GET /nonexistent/... (latest) returns 404", ghost_base),
         ("GET /nonexistent/.../1.0.0 returns 404", f"{ghost_base}/1.0.0"),
         ("GET /nonexistent/.../1.0.0/download returns 404", f"{ghost_base}/1.0.0/download"),
     ]
-
     for label, url in edges:
         try:
             r = anon.get(url, allow_redirects=False, timeout=15)
@@ -553,7 +442,6 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
     if skip_frontend:
         print("\n[Frontend] skipped (--skip-frontend)")
     else:
-        # Re-upload the test module so the detail page has something to show.
         frontend_module_present = False
         if needs_frontend_module and not no_cleanup:
             try:
@@ -575,15 +463,12 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
             frontend_module_present=frontend_module_present,
         )
 
-        # Clean up the re-uploaded frontend module
         if frontend_module_present and not no_cleanup:
             print("\n[CLEANUP: frontend module]")
             try:
                 r = authed.delete(upload_path, timeout=15)
-                if r.status_code == 200:
-                    print(f"  {PASS} Frontend test module deleted")
-                else:
-                    print(f"  {FAIL} Frontend test module delete returned {r.status_code}")
+                icon = PASS if r.status_code == 200 else FAIL
+                print(f"  {icon} Frontend test module deleted")
             except Exception as exc:
                 print(f"  {FAIL} Frontend test module delete failed: {exc}")
 
@@ -591,7 +476,7 @@ def run_tests(base_url: str, api_key: str, skip_frontend: bool, no_cleanup: bool
 
 
 # ---------------------------------------------------------------------------
-# Frontend (Playwright) tests — extracted into a helper so the main flow is clean
+# Frontend (Playwright) tests
 # ---------------------------------------------------------------------------
 
 
@@ -619,23 +504,16 @@ def _run_frontend_tests(
             f"--host-resolver-rules=MAP tf-registry.georg-nikola.com {PROD_IP}"
         )
 
-    # -----------------------------------------------------------------------
-    # [Frontend: Browse Page]
-    # -----------------------------------------------------------------------
     print("\n[Frontend: Browse Page]")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=launch_args)
 
-        # --- Browse page ---
         context = browser.new_context()
         page = context.new_page()
 
         console_errors: list[str] = []
-        page.on(
-            "console",
-            lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
-        )
+        page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
         failed_requests: list[str] = []
         page.on("requestfailed", lambda req: failed_requests.append(req.url))
 
@@ -657,21 +535,15 @@ def _run_frontend_tests(
                console_errors[0] if console_errors else "")
 
         title = page.title()
-        record(
-            "Page title contains 'Terraform' or 'Registry'",
-            "terraform" in title.lower() or "registry" in title.lower(),
-            f"title={title!r}",
-        )
+        record("Page title contains 'Terraform' or 'Registry'",
+               "terraform" in title.lower() or "registry" in title.lower(),
+               f"title={title!r}")
 
-        record(
-            "#module-list container is present in DOM",
-            page.locator("#module-list").count() == 1,
-        )
+        record("#module-list container is present in DOM",
+               page.locator("#module-list").count() == 1)
 
-        record(
-            "Search input (#search-input) is present",
-            page.locator("#search-input").count() == 1,
-        )
+        record("Search input (#search-input) is present",
+               page.locator("#search-input").count() == 1)
 
         context.close()
 
@@ -684,10 +556,7 @@ def _run_frontend_tests(
         page2 = context2.new_page()
 
         up_console_errors: list[str] = []
-        page2.on(
-            "console",
-            lambda msg: up_console_errors.append(msg.text) if msg.type == "error" else None,
-        )
+        page2.on("console", lambda msg: up_console_errors.append(msg.text) if msg.type == "error" else None)
 
         try:
             page2.goto(base_url + "/upload.html", timeout=30_000)
@@ -702,20 +571,12 @@ def _run_frontend_tests(
                len(up_console_errors) == 0,
                up_console_errors[0] if up_console_errors else "")
 
-        record("API key input (#api-key) is present",
-               page2.locator("#api-key").count() == 1)
         record("Namespace input (#namespace) is present",
                page2.locator("#namespace").count() == 1)
         record("Module name input (#module-name) is present",
                page2.locator("#module-name").count() == 1)
-        record("Provider input (#provider) is present",
-               page2.locator("#provider").count() == 1)
-        record("Version input (#version) is present",
-               page2.locator("#version").count() == 1)
         record("File upload input (#archive-file) is present",
                page2.locator("#archive-file").count() == 1)
-        record("Upload submit button is present",
-               page2.locator("button[type='submit']").count() >= 1)
 
         context2.close()
 
@@ -725,16 +586,13 @@ def _run_frontend_tests(
         print("\n[Frontend: Module Detail Page]")
 
         if not frontend_module_present:
-            print("  -- skipped: test module not present (upload failed or already cleaned up)")
+            print("  -- skipped: test module not present")
         else:
             context3 = browser.new_context()
             page3 = context3.new_page()
 
             detail_console_errors: list[str] = []
-            page3.on(
-                "console",
-                lambda msg: detail_console_errors.append(msg.text) if msg.type == "error" else None,
-            )
+            page3.on("console", lambda msg: detail_console_errors.append(msg.text) if msg.type == "error" else None)
 
             detail_url = (
                 f"{base_url}/module.html"
@@ -755,32 +613,19 @@ def _run_frontend_tests(
                    len(detail_console_errors) == 0,
                    detail_console_errors[0] if detail_console_errors else "")
 
-            # The detail content is rendered dynamically — wait for .module-header
-            # or .empty-state to appear (whichever comes first).
             try:
-                page3.wait_for_selector(
-                    ".module-header, .empty-state",
-                    timeout=10_000,
-                )
+                page3.wait_for_selector(".module-header, .empty-state", timeout=10_000)
             except Exception:
                 pass
 
-            record(
-                "#module-detail container is present",
-                page3.locator("#module-detail").count() == 1,
-            )
-            record(
-                "Module header (.module-header) rendered after load",
-                page3.locator(".module-header").count() >= 1,
-            )
-            record(
-                "Versions section (.versions-section) is present",
-                page3.locator(".versions-section").count() >= 1,
-            )
-            record(
-                "Usage section (.usage-section) is present",
-                page3.locator(".usage-section").count() >= 1,
-            )
+            record("#module-detail container is present",
+                   page3.locator("#module-detail").count() == 1)
+            record("Module header (.module-header) rendered after load",
+                   page3.locator(".module-header").count() >= 1)
+            record("Versions section (.versions-section) is present",
+                   page3.locator(".versions-section").count() >= 1)
+            record("Usage section (.usage-section) is present",
+                   page3.locator(".usage-section").count() >= 1)
 
             context3.close()
 
@@ -802,12 +647,11 @@ def main() -> None:
                         help="Skip Playwright frontend tests")
     args = parser.parse_args()
 
-    api_key = _load_api_key()
-    if not api_key:
+    username, password = _get_credentials()
+    if not password:
         print(
-            "WARNING: No API key found. "
-            "Set TF_REGISTRY_API_KEY or create ~/repos/tf-registry/.api_key. "
-            "Auth-protected tests will fail.\n"
+            "WARNING: TF_REGISTRY_PASSWORD not set — defaulting to 'admin'. "
+            "Auth tests will fail if the password is different.\n"
         )
 
     label = f"PRODUCTION ({PROD_URL})" if args.url == PROD_URL else f"CUSTOM ({args.url})"
@@ -824,7 +668,8 @@ def main() -> None:
     t0 = time.time()
     results = run_tests(
         base_url=args.url,
-        api_key=api_key,
+        username=username,
+        password=password,
         skip_frontend=args.skip_frontend,
         no_cleanup=args.no_cleanup,
     )

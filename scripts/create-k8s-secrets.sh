@@ -5,9 +5,10 @@
 # Usage:
 #   ./scripts/create-k8s-secrets.sh
 #
-# Required env vars (or will prompt):
-#   DB_PASSWORD       - PostgreSQL password for tfregistry user
-#   API_KEY           - API key for authenticated upload/delete operations
+# Required inputs (will prompt if not set as env vars):
+#   DB_PASSWORD  - PostgreSQL password for tfregistry user
+#   USERNAME     - Admin username for the registry UI
+#   PASSWORD     - Admin password for the registry UI
 
 set -e
 
@@ -24,15 +25,17 @@ read_secret() {
   fi
 }
 
-read_secret DB_PASSWORD       "PostgreSQL password for tfregistry user"
-read_secret API_KEY           "API key for module upload/delete (or press enter to generate)"
+read_secret DB_PASSWORD "PostgreSQL password for tfregistry user"
+read_secret USERNAME    "Admin username (default: admin)"
+read_secret PASSWORD    "Admin password"
 
-if [ -z "$API_KEY" ]; then
-  API_KEY=$(openssl rand -hex 32)
-  echo "Generated API_KEY: $API_KEY"
+if [ -z "$USERNAME" ]; then
+  USERNAME="admin"
 fi
 
-DB_URL="postgresql+asyncpg://tfregistry:${DB_PASSWORD}@postgresql.${NAMESPACE}.svc.cluster.local:5432/tfregistry"
+JWT_SECRET=$(openssl rand -hex 32)
+
+DB_URL="postgresql+asyncpg://tfregistry:${DB_PASSWORD}@tf-registry-postgresql.${NAMESPACE}.svc.cluster.local:5432/tfregistry"
 
 echo ""
 echo "Creating secret: postgresql-credentials"
@@ -44,7 +47,9 @@ kubectl --context "$CONTEXT" -n "$NAMESPACE" create secret generic postgresql-cr
 echo "Creating secret: tf-registry-api-secrets"
 kubectl --context "$CONTEXT" -n "$NAMESPACE" create secret generic tf-registry-api-secrets \
   --from-literal=DATABASE_URL="$DB_URL" \
-  --from-literal=API_KEY="$API_KEY" \
+  --from-literal=USERNAME="$USERNAME" \
+  --from-literal=PASSWORD="$PASSWORD" \
+  --from-literal=JWT_SECRET="$JWT_SECRET" \
   --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 
 echo ""

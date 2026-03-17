@@ -4,14 +4,14 @@ FROM alpine:3.21 AS validator
 COPY index.html /validate/
 COPY module.html /validate/
 COPY upload.html /validate/
-COPY keys.html /validate/
+COPY login.html /validate/
 COPY style.css /validate/
 COPY app.js /validate/
 
 RUN test -s /validate/index.html && \
     test -s /validate/module.html && \
     test -s /validate/upload.html && \
-    test -s /validate/keys.html && \
+    test -s /validate/login.html && \
     test -s /validate/style.css && \
     test -s /validate/app.js
 
@@ -28,7 +28,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY --from=validator /validate/index.html /usr/share/nginx/html/
 COPY --from=validator /validate/module.html /usr/share/nginx/html/
 COPY --from=validator /validate/upload.html /usr/share/nginx/html/
-COPY --from=validator /validate/keys.html /usr/share/nginx/html/
+COPY --from=validator /validate/login.html /usr/share/nginx/html/
 COPY style.css /usr/share/nginx/html/
 COPY app.js /usr/share/nginx/html/
 COPY favicon.ico /usr/share/nginx/html/

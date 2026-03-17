@@ -50,15 +50,24 @@ function showAlert(container, message, type = "error") {
 }
 
 // ---------------------------------------------------------------------------
-// API key localStorage persistence
+// JWT localStorage persistence
 // ---------------------------------------------------------------------------
 
-function getStoredApiKey() {
-  return localStorage.getItem("tf_api_key") || "";
+function getToken() {
+  return localStorage.getItem("tf_jwt") || "";
 }
 
-function setStoredApiKey(key) {
-  localStorage.setItem("tf_api_key", key);
+function setToken(token) {
+  localStorage.setItem("tf_jwt", token);
+}
+
+function clearToken() {
+  localStorage.removeItem("tf_jwt");
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -328,20 +337,18 @@ function initUploadPage() {
   const form = qs("#upload-form");
   if (!form) return;
 
-  // Pre-fill API key from localStorage
-  const apiKeyInput = qs("#api-key", form);
-  if (apiKeyInput) {
-    apiKeyInput.value = getStoredApiKey();
-    apiKeyInput.addEventListener("input", () => {
-      setStoredApiKey(apiKeyInput.value);
-    });
+  const authMsg = qs("#auth-required-msg");
+  const token = getToken();
+
+  if (!token) {
+    if (authMsg) authMsg.style.display = "";
+    form.querySelectorAll("input, textarea, button").forEach((el) => (el.disabled = true));
+    return;
   }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    const apiKey = qs("#api-key", form).value.trim();
-    setStoredApiKey(apiKey);
     const namespace = qs("#namespace", form).value.trim();
     const moduleName = qs("#module-name", form).value.trim();
     const provider = qs("#provider", form).value.trim();
@@ -350,7 +357,7 @@ function initUploadPage() {
     const sourceUrl = qs("#source-url", form).value.trim();
     const fileInput = qs("#archive-file", form);
 
-    if (!apiKey || !namespace || !moduleName || !provider || !version) {
+    if (!namespace || !moduleName || !provider || !version) {
       showAlert(form, "Please fill in all required fields.");
       return;
     }
@@ -377,11 +384,15 @@ function initUploadPage() {
 
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers: authHeaders(),
         body: formData,
       });
+
+      if (res.status === 401) {
+        clearToken();
+        showAlert(form, "Session expired. Please sign in again.");
+        return;
+      }
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -390,7 +401,6 @@ function initUploadPage() {
 
       showAlert(form, `Successfully uploaded ${namespace}/${moduleName}/${provider} v${version}`, "success");
 
-      // Reset form fields except API key
       qs("#namespace", form).value = "";
       qs("#module-name", form).value = "";
       qs("#provider", form).value = "";
@@ -408,167 +418,70 @@ function initUploadPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Keys page (keys.html)
+// Login page (login.html)
 // ---------------------------------------------------------------------------
 
-function initKeysPage() {
-  const keysSection = qs("#keys-section");
-  if (!keysSection) return;
+function initLoginPage() {
+  const loginCard = qs("#login-card");
+  const loggedInBox = qs("#logged-in-box");
+  if (!loginCard && !loggedInBox) return;
 
-  const apiKeyInput = qs("#api-key-input");
-  const keysList = qs("#keys-list");
-  const keysTableBody = qs("#keys-table-body");
-  const noKeysMsg = qs("#no-keys-msg");
-  const authPrompt = qs("#auth-prompt");
-  const generateForm = qs("#generate-form");
-  const keyNameInput = qs("#key-name");
-  const newKeyBox = qs("#new-key-box");
-  const newKeyValue = qs("#new-key-value");
-  const copyNewKeyBtn = qs("#copy-new-key");
-
-  // Pre-fill API key from localStorage
-  if (apiKeyInput) {
-    apiKeyInput.value = getStoredApiKey();
-    apiKeyInput.addEventListener("input", () => {
-      setStoredApiKey(apiKeyInput.value);
-    });
+  function showLoggedIn() {
+    if (loginCard) loginCard.style.display = "none";
+    if (loggedInBox) loggedInBox.style.display = "";
   }
 
-  async function fetchKeys() {
-    const key = apiKeyInput ? apiKeyInput.value.trim() : "";
-    if (!key) {
-      if (authPrompt) authPrompt.style.display = "";
-      if (keysList) keysList.style.display = "none";
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/keys", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-
-      if (res.status === 401 || res.status === 403) {
-        if (authPrompt) authPrompt.style.display = "";
-        if (keysList) keysList.style.display = "none";
-        return;
-      }
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      if (authPrompt) authPrompt.style.display = "none";
-      if (keysList) keysList.style.display = "";
-      renderKeyRows(data.keys || []);
-    } catch (err) {
-      showAlert(keysSection, err.message);
-    }
+  function showLoginForm() {
+    if (loginCard) loginCard.style.display = "";
+    if (loggedInBox) loggedInBox.style.display = "none";
   }
 
-  function renderKeyRows(keys) {
-    if (!keysTableBody) return;
-    if (keys.length === 0) {
-      keysTableBody.innerHTML = "";
-      if (noKeysMsg) noKeysMsg.style.display = "";
-      return;
-    }
-    if (noKeysMsg) noKeysMsg.style.display = "none";
-    keysTableBody.innerHTML = keys
-      .map(
-        (k) => `
-      <tr>
-        <td>${escapeHtml(k.name)}</td>
-        <td><code>${escapeHtml(k.key_prefix)}...</code></td>
-        <td>${k.created_at ? relativeTime(k.created_at) : "—"}</td>
-        <td>${k.last_used_at ? relativeTime(k.last_used_at) : "never"}</td>
-        <td><button class="btn btn-danger btn-sm revoke-btn" data-id="${k.id}" data-name="${escapeHtml(k.name)}">Revoke</button></td>
-      </tr>`
-      )
-      .join("");
-
-    keysTableBody.querySelectorAll(".revoke-btn").forEach((btn) => {
-      btn.addEventListener("click", () => revokeKey(Number(btn.dataset.id), btn.dataset.name));
-    });
+  if (getToken()) {
+    showLoggedIn();
+  } else {
+    showLoginForm();
   }
 
-  async function revokeKey(id, name) {
-    if (!confirm(`Revoke key "${name}"? This cannot be undone.`)) return;
-    const key = apiKeyInput ? apiKeyInput.value.trim() : "";
-    try {
-      const res = await fetch(`/api/keys/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `HTTP ${res.status}`);
-      }
-      await fetchKeys();
-    } catch (err) {
-      showAlert(keysSection, err.message);
-    }
-  }
-
-  if (generateForm) {
-    generateForm.addEventListener("submit", async (e) => {
+  const form = qs("#login-form");
+  if (form) {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const name = keyNameInput ? keyNameInput.value.trim() : "";
-      if (!name) {
-        showAlert(keysSection, "Please enter a name for the key.");
-        return;
-      }
-      const key = apiKeyInput ? apiKeyInput.value.trim() : "";
-      const submitBtn = qs('button[type="submit"]', generateForm);
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = "Generating...";
-      }
+      const username = qs("#username").value.trim();
+      const password = qs("#password").value;
+      const submitBtn = qs('button[type="submit"]', form);
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Signing in...";
+
       try {
-        const res = await fetch("/api/keys", {
+        const res = await fetch("/api/auth/login", {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${key}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ name }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
         });
+
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.detail || `HTTP ${res.status}`);
         }
+
         const data = await res.json();
-        if (newKeyValue) newKeyValue.textContent = data.key;
-        if (newKeyBox) newKeyBox.style.display = "";
-        if (keyNameInput) keyNameInput.value = "";
-        await fetchKeys();
+        setToken(data.access_token);
+        showLoggedIn();
       } catch (err) {
-        showAlert(keysSection, err.message);
+        showAlert(qs("#login-section"), err.message);
       } finally {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.textContent = "Generate Key";
-        }
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Sign in";
       }
     });
   }
 
-  if (copyNewKeyBtn && newKeyValue) {
-    copyNewKeyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(newKeyValue.textContent).then(() => {
-        copyNewKeyBtn.textContent = "Copied!";
-        setTimeout(() => {
-          copyNewKeyBtn.textContent = "Copy";
-        }, 2000);
-      });
+  const logoutBtn = qs("#logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      clearToken();
+      showLoginForm();
     });
-  }
-
-  // Load on page open; also reload when the API key input changes
-  fetchKeys();
-  if (apiKeyInput) {
-    apiKeyInput.addEventListener("change", fetchKeys);
   }
 }
 
@@ -580,5 +493,5 @@ document.addEventListener("DOMContentLoaded", () => {
   initBrowsePage();
   initModulePage();
   initUploadPage();
-  initKeysPage();
+  initLoginPage();
 });
