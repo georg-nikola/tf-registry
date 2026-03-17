@@ -282,6 +282,13 @@ def _test_browse_empty(browser, base_url, record):
            footer_ok,
            f"footer={footer_text.strip()!r}")
 
+    # Unauthenticated: welcome banner visible, Upload nav hidden
+    record("Welcome banner (#welcome-banner) shown when not logged in",
+           page.locator("#welcome-banner").is_visible())
+    upload_nav = page.locator("#nav-upload")
+    record("#nav-upload hidden when not logged in",
+           upload_nav.count() == 0 or not upload_nav.is_visible())
+
     context.close()
 
 
@@ -298,6 +305,10 @@ def _test_browse_with_modules(browser, base_url, record):
         record("Module cards appear in #module-list after load", False, str(exc)[:80])
         context.close()
         return
+
+    # Welcome banner still shown (no JWT in this context)
+    record("Welcome banner visible to unauthenticated user with modules present",
+           page.locator("#welcome-banner").is_visible())
 
     cards = page.locator("#module-list .module-card")
     card_count = cards.count()

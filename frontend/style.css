@@ -522,6 +522,47 @@ pre {
   }
 }
 
+/* ── Welcome banner (shown to unauthenticated users on browse page) ───── */
+.welcome-banner {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.75rem 2rem;
+  margin: 2rem 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.welcome-banner-text h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.welcome-banner-text p {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+/* ── Nav sign-out button (styled like a nav link) ─────────────────────── */
+nav button.nav-signout {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+nav button.nav-signout:hover {
+  color: var(--text-primary);
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────── */
 footer {
   border-top: 1px solid var(--border);

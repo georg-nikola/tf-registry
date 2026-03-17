@@ -71,6 +71,32 @@ function authHeaders() {
 }
 
 // ---------------------------------------------------------------------------
+// Nav — run on every page to show/hide Upload and swap Login ↔ Sign out
+// ---------------------------------------------------------------------------
+
+function initNav() {
+  const uploadLink = qs("#nav-upload");
+  const loginLink = qs("#nav-login");
+  const loggedIn = Boolean(getToken());
+
+  if (uploadLink) {
+    uploadLink.style.display = loggedIn ? "" : "none";
+  }
+
+  if (loginLink && loggedIn) {
+    // Replace the anchor with a button so it doesn't navigate
+    const btn = document.createElement("button");
+    btn.className = "nav-signout";
+    btn.textContent = "Sign out";
+    btn.addEventListener("click", () => {
+      clearToken();
+      window.location.href = "/login.html";
+    });
+    loginLink.replaceWith(btn);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Browse page (index.html)
 // ---------------------------------------------------------------------------
 
@@ -83,6 +109,12 @@ function initBrowsePage() {
   const pageInfo = qs("#page-info");
 
   if (!listEl) return;
+
+  // Show welcome banner for unauthenticated visitors
+  const welcomeBanner = qs("#welcome-banner");
+  if (welcomeBanner) {
+    welcomeBanner.style.display = getToken() ? "none" : "";
+  }
 
   let currentOffset = 0;
   const limit = 20;
@@ -490,6 +522,7 @@ function initLoginPage() {
 // ---------------------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", () => {
+  initNav();
   initBrowsePage();
   initModulePage();
   initUploadPage();
