@@ -218,7 +218,7 @@ def _run_all_frontend_tests(
             _test_login_page(browser, base_url, username, password, record)
 
             print("\n[Frontend: Navigation]")
-            _test_navigation(browser, base_url, record)
+            _test_navigation(browser, base_url, record, token=token)
 
         finally:
             browser.close()
@@ -592,15 +592,20 @@ def _test_login_page(browser, base_url, username, password, record):
     context.close()
 
 
-def _test_navigation(browser, base_url, record):
+def _test_navigation(browser, base_url, record, token=""):
     context = browser.new_context()
     page = context.new_page()
+
+    # Set JWT so Upload nav link is visible before navigating.
+    if token:
+        page.goto(base_url + "/", timeout=30_000)
+        page.evaluate(f"localStorage.setItem('tf_jwt', '{token}')")
 
     try:
         page.goto(base_url + "/", timeout=30_000)
         page.wait_for_load_state("domcontentloaded")
         with page.expect_navigation(timeout=10_000):
-            page.locator("nav a[href='upload.html']").first.click()
+            page.locator("#nav-upload").first.click()
         record("From /, clicking 'Upload' nav link navigates to /upload.html",
                "upload.html" in page.url, f"url={page.url!r}")
     except Exception as exc:
@@ -619,11 +624,17 @@ def _test_navigation(browser, base_url, record):
         record("From /upload.html, clicking 'Browse' navigates to /",
                False, str(exc)[:80])
 
+    # Clear JWT so Login anchor is present (not replaced by Sign out button).
+    try:
+        page.evaluate("localStorage.removeItem('tf_jwt')")
+    except Exception:
+        pass
+
     try:
         page.goto(base_url + "/", timeout=30_000)
         page.wait_for_load_state("domcontentloaded")
         with page.expect_navigation(timeout=10_000):
-            page.locator("nav a[href='login.html']").first.click()
+            page.locator("#nav-login").first.click()
         record("From /, clicking 'Login' nav link navigates to /login.html",
                "login.html" in page.url, f"url={page.url!r}")
     except Exception as exc:
