@@ -1,5 +1,5 @@
 # Build stage - validate static files exist and are non-empty
-FROM alpine:3.21 AS validator
+FROM alpine:3.23 AS validator
 
 COPY index.html /validate/
 COPY module.html /validate/
