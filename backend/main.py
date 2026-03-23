@@ -33,6 +33,13 @@ JWT_EXPIRY_DAYS = 7
 
 BASE_URL = os.getenv("BASE_URL", "")
 
+# Fail fast if JWT_SECRET is not configured — prevents the API from starting
+# with an empty signing key that would make all tokens trivially forgeable.
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET environment variable must be set to a strong random secret"
+    )
+
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$")
 
 

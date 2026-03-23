@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Trivy — Dockerfiles + Helm charts + IaC
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: fs
           scan-ref: .
@@ -101,7 +101,7 @@ jobs:
           exit-code: "0"
 
       - name: Trivy — SARIF for GitHub Security tab
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           scan-type: fs
           scan-ref: .
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Kubescape — NSA + MITRE frameworks
-        uses: kubescape/github-action@main
+        uses: kubescape/github-action@c9749b84d138c0cbbb702b258774954f5463b82e # v3.0.21
         continue-on-error: true
         with:
           frameworks: NSA,MITRE

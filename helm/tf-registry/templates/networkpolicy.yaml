@@ -1,0 +1,24 @@
+# ── tf-registry frontend: allow Traefik ingress ──────────────────────────
+# NOTE: Namespace-wide default-deny and allow-dns policies are defined in
+# the movie-picker frontend chart (both apps share the default namespace).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-tf-frontend
+  labels:
+    {{- include "tf-registry.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "tf-registry.name" . }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080

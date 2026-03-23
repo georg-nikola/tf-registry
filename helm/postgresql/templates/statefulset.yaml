@@ -15,6 +15,7 @@ spec:
       labels:
         app: {{ include "postgresql.fullname" . }}
     spec:
+      automountServiceAccountToken: false
       # NOTE: The official postgres image starts as root and uses gosu/su-exec to
       # drop to the postgres user internally. Full non-root enforcement requires
       # switching to bitnami/postgresql. No securityContext is set here to avoid
@@ -23,6 +24,15 @@ spec:
         - name: postgresql
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-c"
+            - "ssl=on"
+            - "-c"
+            - "ssl_cert_file=/var/lib/postgresql/certs/server.crt"
+            - "-c"
+            - "ssl_key_file=/var/lib/postgresql/certs/server.key"
+            - "-c"
+            - "ssl_ca_file=/var/lib/postgresql/certs/ca.crt"
           ports:
             - name: postgres
               containerPort: 5432
@@ -58,6 +68,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: pg-tls
+              mountPath: /var/lib/postgresql/certs
+              readOnly: true
+      volumes:
+        - name: pg-tls
+          secret:
+            secretName: postgresql-tls
+            defaultMode: 0600
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
