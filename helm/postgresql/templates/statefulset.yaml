@@ -19,8 +19,16 @@ spec:
       # NOTE: The official postgres image starts as root and uses gosu/su-exec to
       # drop to the postgres user internally. fsGroup=999 ensures TLS secret files
       # are group-readable by the postgres user after privilege drop.
-      securityContext:
-        fsGroup: 999
+      initContainers:
+        - name: copy-tls-certs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sh", "-c", "cp /tls-secret/* /tls-certs/ && chown 999:999 /tls-certs/* && chmod 600 /tls-certs/server.key && chmod 644 /tls-certs/server.crt /tls-certs/ca.crt"]
+          volumeMounts:
+            - name: pg-tls
+              mountPath: /tls-secret
+              readOnly: true
+            - name: pg-tls-certs
+              mountPath: /tls-certs
       containers:
         - name: postgresql
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -69,14 +77,15 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
-            - name: pg-tls
+            - name: pg-tls-certs
               mountPath: /var/lib/postgresql/certs
               readOnly: true
       volumes:
         - name: pg-tls
           secret:
             secretName: postgresql-tls
-            defaultMode: 0640
+        - name: pg-tls-certs
+          emptyDir: {}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
