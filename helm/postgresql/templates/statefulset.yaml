@@ -17,9 +17,10 @@ spec:
     spec:
       automountServiceAccountToken: false
       # NOTE: The official postgres image starts as root and uses gosu/su-exec to
-      # drop to the postgres user internally. Full non-root enforcement requires
-      # switching to bitnami/postgresql. No securityContext is set here to avoid
-      # interfering with the image's internal privilege-drop mechanism.
+      # drop to the postgres user internally. fsGroup=999 ensures TLS secret files
+      # are group-readable by the postgres user after privilege drop.
+      securityContext:
+        fsGroup: 999
       containers:
         - name: postgresql
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
