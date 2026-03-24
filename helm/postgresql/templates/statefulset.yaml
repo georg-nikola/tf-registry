@@ -22,7 +22,7 @@ spec:
       initContainers:
         - name: copy-tls-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          command: ["sh", "-c", "cp /tls-secret/* /tls-certs/ && chown 999:999 /tls-certs/* && chmod 600 /tls-certs/server.key && chmod 644 /tls-certs/server.crt /tls-certs/ca.crt"]
+          command: ["sh", "-c", "cp /tls-secret/* /tls-certs/ && chown 70:70 /tls-certs/* && chmod 600 /tls-certs/server.key && chmod 644 /tls-certs/server.crt /tls-certs/ca.crt"]
           volumeMounts:
             - name: pg-tls
               mountPath: /tls-secret
