@@ -30,3 +30,21 @@ tolerations:
   - key: node-role.kubernetes.io/control-plane
     operator: Exists
     effect: NoSchedule
+
+# Pod-level security context (e.g. fsGroup for PVC permissions).
+podSecurityContext: {}
+
+# Container-level security context. Set readOnlyRootFilesystem: true to
+# satisfy the verify-image / KSV014 audit policy. When enabled, also set
+# extraVolumes/extraVolumeMounts below to provide writable paths the
+# postgres image needs (/tmp, /var/run/postgresql).
+containerSecurityContext: {}
+
+# Additional volumes appended to the StatefulSet pod spec. Use with
+# extraVolumeMounts to provide writable emptyDirs when
+# readOnlyRootFilesystem is enabled.
+extraVolumes: []
+
+# Additional volume mounts appended to the postgres container. Pair with
+# extraVolumes.
+extraVolumeMounts: []
