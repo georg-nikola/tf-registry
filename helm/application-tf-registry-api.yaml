@@ -26,7 +26,7 @@ spec:
           registry: ghcr.io
           repository: georg-nikola/tf-registry-api
           pullPolicy: Always
-          tag: "1.0.0"
+          tag: "1.1.2"
 
         service:
           type: ClusterIP
