@@ -47,6 +47,29 @@ spec:
             operator: Exists
             effect: NoSchedule
 
+        containerSecurityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+            add:
+              - CHOWN
+              - DAC_OVERRIDE
+              - FOWNER
+              - SETGID
+              - SETUID
+        extraVolumes:
+          - name: tmp
+            emptyDir: {}
+          - name: pg-runsock
+            emptyDir: {}
+        extraVolumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: pg-runsock
+            mountPath: /var/run/postgresql
+
   destination:
     server: https://kubernetes.default.svc
     namespace: default
