@@ -3,7 +3,7 @@ uvicorn[standard]==0.34.0
 sqlalchemy[asyncio]==2.0.48
 asyncpg==0.30.0
 python-multipart==0.0.22
-aiofiles==24.1.0
+aiofiles==25.1.0
 PyJWT==2.12.1
 pydantic==2.12.5
 pydantic-settings==2.7.1
