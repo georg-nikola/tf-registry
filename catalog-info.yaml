@@ -1,0 +1,14 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: tf-registry
+  annotations:
+    github.com/project-slug: georg-nikola/tf-registry
+    backstage.io/kubernetes-namespace: default
+    backstage.io/kubernetes-label-selector: app.kubernetes.io/name in (tf-registry,tf-registry-api)
+    argocd/app-name: tf-registry
+spec:
+  type: service
+  lifecycle: production
+  owner: platform
+  system: home-cluster
