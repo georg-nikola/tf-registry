@@ -63,7 +63,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
@@ -132,7 +132,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
 
       - name: Generate API artifact attestation
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api
           subject-digest: ${{ steps.build-and-push-api.outputs.digest }}
